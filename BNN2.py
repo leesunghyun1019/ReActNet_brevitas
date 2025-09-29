@@ -8,8 +8,8 @@ from brevitas.inject.enum import BitWidthImplType
 from brevitas.inject.enum import ScalingImplType
 from brevitas.inject.enum import StatsOp
 from brevitas.inject.enum import RestrictValueType
+from brevitas.inject import value
 
-import brevitas.nn as qnn
 
 from brevitas.quant import Int8WeightPerTensorFloat,Int8ActPerTensorFloat,Uint8ActPerTensorFloat
 
@@ -22,7 +22,12 @@ class BinaryWeightPerChannel(Int8WeightPerTensorFloat):
      scaling_stats_op = StatsOp.AVE
      scaling_per_output_channel = True
      narrow_range = False
-
+     
+     @value
+     def scaling_init(module):
+         return torch.mean(torch.abs(module.weight), dim=(1, 2, 3), keepdim=True)
+    
+   
 
 def Bconv1x1(in_planes,out_planes,stride=1):
     """1x1 binary convolution without padding"""
@@ -36,10 +41,13 @@ def Bconv3x3(in_planes,out_planes,stride=1):
 # Binary Activation
 class BinaryActPerTensor(Int8ActPerTensorFloat):
     quant_type = QuantType.BINARY
+    min_val = -1.0
+    max_val = 1.0
     bit_width = 1
+    restrict_scaling_type = RestrictValueType.FP
 
 class BinaryActivation(nn.Module):
-    def __init__(self,return_quant_tensor=True):
+    def __init__(self,return_quant_tensor=False):
         super(BinaryActivation,self).__init__()
         self.quant = qnn.QuantSigmoid(act_quant=BinaryActPerTensor,return_quant_tensor=return_quant_tensor)
 
@@ -49,7 +57,7 @@ class BinaryActivation(nn.Module):
 class firstconv3x3(nn.Module):
     def __init__(self,in_planes,out_planes,stride):
         super(firstconv3x3,self).__init__()
-        self.conv=qnn.QuantConv2d(in_planes,out_planes,kernel_size=3,weight_bit_width=8,weight_quant=Int8WeightPerTensorFloat,weight_scaling_min_val=2e-16,restrict_scaling_type=RestrictValueType.LOG_FP,stride=stride,padding=1,bias=False)
+        self.conv=qnn.QuantConv2d(in_planes,out_planes,kernel_size=3,weight_bit_width=8,weight_quant=Int8WeightPerTensorFloat,weight_scaling_min_val=2e-16,restrict_scaling_type=RestrictValueType.FP,stride=stride,padding=1,bias=False)
 
     def forward(self,x):
         out=self.conv(x)
@@ -60,7 +68,7 @@ class firstconv3x3(nn.Module):
 class Int8Activation(nn.Module):
     def __init__(self):
         super(Int8Activation,self).__init__()
-        self.quant= qnn.QuantSigmoid(bit_width=8, return_quant_tensor= True, act_quant=Int8ActPerTensorFloat, scaling_min_val = 2e-16, restrict_scaling_type = RestrictValueType.LOG_FP)
+        self.quant= qnn.QuantSigmoid(bit_width=8, return_quant_tensor= False, act_quant=Int8ActPerTensorFloat, scaling_min_val = 2e-16, restrict_scaling_type = RestrictValueType.FP)
     def forward(self,x):
         return self.quant(x)
 
@@ -68,14 +76,14 @@ class Int8Activation(nn.Module):
 class Int8ReLU(nn.Module):
     def __init__(self):
         super(Int8ReLU,self).__init__()
-        self.relu = qnn.QuantReLU(bit_width = 8, return_quant_tensor = True)
+        self.relu = qnn.QuantReLU(bit_width = 8, return_quant_tensor = False)
     def forward(self, x):
         return self.relu(x)
 
 class QAvgPool2d(nn.Module):
     def __init__(self, kernel_size,stride=None,padding=0):
         super(QAvgPool2d,self).__init__()
-        self.Avgpool2d= qnn.TruncAvgPool2d(kernel_size = kernel_size, stride=stride, padding = padding, return_quant_tensor = True)
+        self.Avgpool2d= qnn.TruncAvgPool2d(kernel_size = kernel_size, stride=stride, padding = padding, return_quant_tensor = False)
 
     def forward(self,x):
         return self.Avgpool2d(x)
@@ -83,7 +91,7 @@ class QAvgPool2d(nn.Module):
 class QAdaptiveAvgPool2d(nn.Module):
     def __init__(self,output_size):
         super(QAdaptiveAvgPool2d,self).__init__()
-        self.AdaptiveAvgPool2d=qnn.TruncAdaptiveAvgPool2d(output_size=output_size, return_quant_tensor = True)
+        self.AdaptiveAvgPool2d=qnn.TruncAdaptiveAvgPool2d(output_size=output_size, return_quant_tensor = False)
     
     def forward(self,x):
         return self.AdaptiveAvgPool2d(x)
@@ -92,7 +100,7 @@ class QAdaptiveAvgPool2d(nn.Module):
 class Int8Linear(nn.Module):
     def __init__(self,in_features,out_features):
         super(Int8Linear,self).__init__()
-        self.linear=qnn.QuantLinear(in_features=in_features,out_features=out_features,weight_quant= Int8WeightPerTensorFloat,weight_bit_width= 8, return_quant_tensor= True)
+        self.linear=qnn.QuantLinear(in_features=in_features,out_features=out_features,weight_quant= Int8WeightPerTensorFloat,weight_bit_width= 8, return_quant_tensor= False)
     def forward(self,x):
         return self.linear(x)
 
@@ -102,12 +110,12 @@ class Quantinput(nn.Module):
         super(Quantinput,self).__init__()
 
         if (input_sign):
-            self.quant_inp = qnn.QuantIdentity(bit_width = 8, return_quant_tensor = True, act_quant = Uint8ActPerTensorFloat, scaling_min_val = 2e-16, 
-                            restrict_scaling_type = RestrictValueType.LOG_FP)
+            self.quant_inp = qnn.QuantIdentity(bit_width = 8, return_quant_tensor = False, act_quant = Uint8ActPerTensorFloat, scaling_min_val = 2e-16, 
+                            restrict_scaling_type = RestrictValueType.FP)
         else:
-            self.quant_inp = qnn.QuantIdentity(bit_width = 8, return_quant_tensor = True,
+            self.quant_inp = qnn.QuantIdentity(bit_width = 8, return_quant_tensor = False,
                          act_quant = Int8ActPerTensorFloat, scaling_min_val = 2e-16, 
-                                        restrict_scaling_type = RestrictValueType.LOG_FP)
+                                        restrict_scaling_type = RestrictValueType.FP)
 
     def forward(self,x):
         return self.quant_inp(x)
