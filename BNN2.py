@@ -47,12 +47,12 @@ class BinaryActPerTensor(Int8ActPerTensorFloat):
     restrict_scaling_type = RestrictValueType.FP
 
 class BinaryActivation(nn.Module):
-    def __init__(self,return_quant_tensor=False):
+    def __init__(self,alpha=3,return_quant_tensor=False):
         super(BinaryActivation,self).__init__()
         self.quant = qnn.QuantSigmoid(act_quant=BinaryActPerTensor,return_quant_tensor=return_quant_tensor)
-
+        self.alpha = alpha
     def forward(self,x):
-        return self.quant(x)
+        return self.quant(self.alpha*x)
 
 class firstconv3x3(nn.Module):
     def __init__(self,in_planes,out_planes,stride):
@@ -119,3 +119,4 @@ class Quantinput(nn.Module):
 
     def forward(self,x):
         return self.quant_inp(x)
+
