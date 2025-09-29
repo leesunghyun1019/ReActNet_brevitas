@@ -1,37 +1,45 @@
 import torch
 import torchvision
-import torchvision.transforms as transforms
+from torchvision import datasets, transforms
 
-def get_cifar10_loaders(batch_size=128, num_workers=2, data_path="./data"):
+Dataset_path = '/Datasets/CIFAR10/'
+
+def get_cifar10_loaders(batch_size=256, num_workers=8, data_path="./data"):
     # 데이터 전처리
     transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465),
-                             (0.2023, 0.1994, 0.2010)),
+    transforms.Pad(4, padding_mode='reflect'),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomCrop(32),
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616))
     ])
 
     transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465),
-                             (0.2023, 0.1994, 0.2010)),
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616))
     ])
 
     # 데이터셋
-    trainset = torchvision.datasets.CIFAR10(
-        root=data_path, train=True, download=True, transform=transform_train
-    )
-    testset = torchvision.datasets.CIFAR10(
-        root=data_path, train=False, download=True, transform=transform_test
-    )
+    Train_data = datasets.CIFAR10(root=Dataset_path, train=True, download=True, transform=transform_train)
+    Test_data = datasets.CIFAR10(root=Dataset_path,  train=False, download=True, transform=transform_test)
+
 
     # DataLoader
-    trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers
-    )
-    testloader = torch.utils.data.DataLoader(
-        testset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+    train_data_loader = torch.utils.data.DataLoader(
+        dataset=Train_data,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers, 
+        pin_memory=True,
+        drop_last=True
+        )
+    test_data_loader = torch.utils.data.DataLoader(
+        dataset=Test_data,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers, 
+        pin_memory=True,
+        drop_last=False
     )
 
-    return trainloader, testloader
+    return train_data_loader, test_data_loader
