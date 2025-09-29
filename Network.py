@@ -1,32 +1,36 @@
 import torch
 import torch.nn as nn
-from BNN2 import *
+from BNN2 import * # 양자화 함수들
+
+import brevitas.nn as qnn
 
 stage_out_channel = [32] + [64] + [128] * 2 + [256] * 2 + [512] * 6 + [1024] * 2
 
 
 
-# class LearnableBias(nn.Module):
-#     def __init__(self, out_chn):
-#         super(LearnableBias, self).__init__()
-#         self.bias = nn.Parameter(torch.zeros(1,out_chn,1,1), requires_grad=True)
-
-#     def forward(self, x):
-#         out = x + self.bias.expand_as(x)
-#         return out
-
+# 기존의 LearnableBias
 class LearnableBias(nn.Module):
-    
     def __init__(self, out_chn):
         super(LearnableBias, self).__init__()
         self.bias = nn.Parameter(torch.zeros(1,out_chn,1,1), requires_grad=True)
+
+    def forward(self, x):
+        out = x + self.bias.expand_as(x)
+        return out
+
+# brevitas과 호환된 LearnableBias
+# class LearnableBias(nn.Module):
     
-    def forward(self,x):
-        if hasattr(x,'value'):
-            out = x.value + self.bias.expand_as(x.value)
-            return x.set(value=out)
-        else:
-            return x+ self.bias.expand_as(x)
+#     def __init__(self, out_chn):
+#         super(LearnableBias, self).__init__()
+#         self.bias = nn.Parameter(torch.zeros(1,out_chn,1,1), requires_grad=True)
+    
+#     def forward(self,x):
+#         if hasattr(x,'value'):
+#             out = x.value + self.bias.expand_as(x.value)
+#             return x.set(value=out)
+#         else:
+#             return x+ self.bias.expand_as(x)
 
 
 class BasicBlock(nn.Module):
@@ -38,6 +42,7 @@ class BasicBlock(nn.Module):
         self.move11 = LearnableBias(inplanes)
         self.binary_3x3 = Bconv3x3(inplanes,inplanes,stride=stride)
         self.move12 = LearnableBias(inplanes)
+        self.bn1 = qnn.BatchNorm2dToQuantScaleBias(inplanes)
 
         self.prelu1  = Int8ReLU()
 
@@ -46,9 +51,12 @@ class BasicBlock(nn.Module):
 
         if inplanes == planes:
             self.binary_pw = Bconv1x1(inplanes, planes)
+            self.bn2 = qnn.BatchNorm2dToQuantScaleBias(planes)
         else:
             self.binary_pw_down1 = Bconv1x1(inplanes, inplanes)
             self.binary_pw_down2 = Bconv1x1(inplanes, inplanes)
+            self.bn2_1 = qnn.BatchNorm2dToQuantScaleBias(inplanes)
+            self.bn2_2 = qnn.BatchNorm2dToQuantScaleBias(inplanes)
 
         self.move22 = LearnableBias(planes)
         self.prelu2 = Int8ReLU()
@@ -61,8 +69,8 @@ class BasicBlock(nn.Module):
         self.planes = planes
 
         if self.inplanes != self.planes:
-            self.pooling = QAvgPool2d(2,2)
-            #self.pooling = nn.AvgPool2d(2,2)
+            # self.pooling = QAvgPool2d(2,2)
+            self.pooling = nn.AvgPool2d(2,2)
 
     def forward(self,x):
 
@@ -71,6 +79,7 @@ class BasicBlock(nn.Module):
         out1 = self.move11(x_in)
         out1 = self.binary_activation(out1)
         out1 = self.binary_3x3(out1)
+        out1 = self.bn1(out1)
 
         if self.stride == 2:
             x = self.pooling(x_in)
@@ -87,12 +96,15 @@ class BasicBlock(nn.Module):
 
         if self.inplanes == self.planes:
             out2 = self.binary_pw(out2)
+            out2 = self.bn2(out2)
             out2 = out2 + out1
         else:
             assert self.planes == self.inplanes * 2
 
             out2_1 = self.binary_pw_down1(out2)
             out2_2 = self.binary_pw_down2(out2)
+            out2_1 = self.bn2_1(out2_1)
+            out2_2 = self.bn2_2(out2_2)
 
             out2_1 = out2_1+ out1
             out2_2 = out2_2+ out1
@@ -121,8 +133,8 @@ class Reactnet(nn.Module):
             else:
                 self.feature.append(BasicBlock(stage_out_channel[i-1], stage_out_channel[i], 1))
 
-        self.pool1 = QAdaptiveAvgPool2d(1)
-        #self.pool1 = nn.AdaptiveAvgPool2d(1)
+        # self.pool1 = QAdaptiveAvgPool2d(1)
+        self.pool1 = nn.AdaptiveAvgPool2d(1)
         self.fc = Int8Linear(1024,num_classes)
 
         # 가중치 초기화 추가
@@ -145,6 +157,9 @@ class Reactnet(nn.Module):
         x = self.fc(x)
 
         return x
+
+
+
 
 
 
