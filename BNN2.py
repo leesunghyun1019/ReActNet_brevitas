@@ -54,6 +54,7 @@ class BinaryActPerTensor(Int8ActPerTensorFloat):
 #     def forward(self,x):
 #         return self.quant(self.alpha*x)
 
+# BianryActivation 수정
 class BinaryActivation(nn.Module):
     def __init__(self,return_quant_tensor=True):
         super(BinaryActivation,self).__init__()
@@ -128,5 +129,6 @@ class Quantinput(nn.Module):
 
     def forward(self,x):
         return self.quant_inp(x)
+
 
 
