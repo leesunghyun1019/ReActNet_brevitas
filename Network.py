@@ -33,6 +33,21 @@ class LearnableBias(nn.Module):
 #             return x+ self.bias.expand_as(x)
 
 
+# class firstconv3x3(nn.Module):
+#     def __init__(self, inp, oup, stride):
+#         super(firstconv3x3, self).__init__()
+
+#         self.conv1 = nn.Conv2d(inp, oup, 3, stride, 1, bias=False)
+#         self.bn1 = nn.BatchNorm2d(oup)
+
+#     def forward(self, x):
+
+#         out = self.conv1(x)
+#         out = self.bn1(out)
+
+#         return out
+
+
 class BasicBlock(nn.Module):
 
     def __init__(self,inplanes,planes,stride=1):
@@ -42,7 +57,8 @@ class BasicBlock(nn.Module):
         self.move11 = LearnableBias(inplanes)
         self.binary_3x3 = Bconv3x3(inplanes,inplanes,stride=stride)
         self.move12 = LearnableBias(inplanes)
-        self.bn1 = qnn.BatchNorm2dToQuantScaleBias(inplanes)
+        # self.bn1 = qnn.BatchNorm2dToQuantScaleBias(inplanes)
+        self.bn1 = nn.BatchNorm2d(inplanes) 
 
         self.prelu1  = Int8ReLU()
 
@@ -51,12 +67,15 @@ class BasicBlock(nn.Module):
 
         if inplanes == planes:
             self.binary_pw = Bconv1x1(inplanes, planes)
-            self.bn2 = qnn.BatchNorm2dToQuantScaleBias(planes)
+            #self.bn2 = qnn.BatchNorm2dToQuantScaleBias(planes)
+            self.bn2 = nn.BatchNorm2d(planes) 
         else:
             self.binary_pw_down1 = Bconv1x1(inplanes, inplanes)
             self.binary_pw_down2 = Bconv1x1(inplanes, inplanes)
-            self.bn2_1 = qnn.BatchNorm2dToQuantScaleBias(inplanes)
-            self.bn2_2 = qnn.BatchNorm2dToQuantScaleBias(inplanes)
+            #self.bn2_1 = qnn.BatchNorm2dToQuantScaleBias(inplanes)
+            #self.bn2_2 = qnn.BatchNorm2dToQuantScaleBias(inplanes)
+            self.bn2_1 = nn.BatchNorm2d(inplanes)
+            self.bn2_2 = nn.BatchNorm2d(inplanes)
 
         self.move22 = LearnableBias(planes)
         self.prelu2 = Int8ReLU()
@@ -136,14 +155,8 @@ class Reactnet(nn.Module):
         # self.pool1 = QAdaptiveAvgPool2d(1)
         self.pool1 = nn.AdaptiveAvgPool2d(1)
         self.fc = Int8Linear(1024,num_classes)
-
-        # 가중치 초기화 추가
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
+        
+        
     
     def forward(self,x):
         
@@ -157,6 +170,7 @@ class Reactnet(nn.Module):
         x = self.fc(x)
 
         return x
+
 
 
 
