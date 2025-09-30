@@ -74,13 +74,13 @@ class firstconv3x3(nn.Module):
         return out
 
 
-#Int8 Activation
-class Int8Activation(nn.Module):
-    def __init__(self):
-        super(Int8Activation,self).__init__()
-        self.quant= qnn.QuantSigmoid(bit_width=8, return_quant_tensor= False, act_quant=Int8ActPerTensorFloat, scaling_min_val = 2e-16, restrict_scaling_type = RestrictValueType.FP)
-    def forward(self,x):
-        return self.quant(x)
+# #Int8 Activation
+# class Int8Activation(nn.Module):
+#     def __init__(self):
+#         super(Int8Activation,self).__init__()
+#         self.quant= qnn.QuantSigmoid(bit_width=8, return_quant_tensor= False, act_quant=Int8ActPerTensorFloat, scaling_min_val = 2e-16, restrict_scaling_type = RestrictValueType.FP)
+#     def forward(self,x):
+#         return self.quant(x)
 
 
 class Int8ReLU(nn.Module):
@@ -129,6 +129,7 @@ class Quantinput(nn.Module):
 
     def forward(self,x):
         return self.quant_inp(x)
+
 
 
 
