@@ -155,6 +155,7 @@ class Reactnet(nn.Module):
         # self.pool1 = QAdaptiveAvgPool2d(1)
         self.pool1 = nn.AdaptiveAvgPool2d(1)
         self.fc = Int8Linear(1024,num_classes)
+        self.o_quant = qnn.QuantIdentity(bit_width = 8, return_quant_tensor = True)
         
         
     
@@ -168,8 +169,12 @@ class Reactnet(nn.Module):
         x= self.pool1(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
+        x = self.o_quant(x)
 
-        return x
+        return F.log_softmax(x, dim = 1)
+        #return x
+
+
 
 
 
