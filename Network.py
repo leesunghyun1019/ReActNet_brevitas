@@ -4,6 +4,8 @@ from BNN2 import * # 양자화 함수들
 
 import brevitas.nn as qnn
 
+import torch.nn.functional as F
+
 stage_out_channel = [32] + [64] + [128] * 2 + [256] * 2 + [512] * 6 + [1024] * 2
 
 
@@ -173,6 +175,7 @@ class Reactnet(nn.Module):
 
         return F.log_softmax(x, dim = 1)
         #return x
+
 
 
 
