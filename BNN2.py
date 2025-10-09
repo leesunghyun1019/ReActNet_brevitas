@@ -65,14 +65,13 @@ class BinaryActivation(nn.Module):
         return self.quant(torch.sign(x))  
 
 class firstconv3x3(nn.Module):
-    def __init__(self,in_planes,out_planes,stride):
+    def __init__(self,in_planes,out_planes,stride,kernel_size=3, padding=1):
         super(firstconv3x3,self).__init__()
-        self.conv=qnn.QuantConv2d(in_planes,out_planes,kernel_size=3,weight_bit_width=8,weight_quant=Int8WeightPerTensorFloat,weight_scaling_min_val=2e-16,restrict_scaling_type=RestrictValueType.FP,stride=stride,padding=1,bias=False)
+        self.conv=qnn.QuantConv2d(in_planes,out_planes,kernel_size=kernel_size,weight_bit_width=8,weight_quant=Int8WeightPerTensorFloat,weight_scaling_min_val=2e-16,restrict_scaling_type=RestrictValueType.FP,stride=stride,padding=padding,bias=False)
 
     def forward(self,x):
         out=self.conv(x)
         return out
-
 
 # #Int8 Activation
 # class Int8Activation(nn.Module):
@@ -129,6 +128,7 @@ class Quantinput(nn.Module):
 
     def forward(self,x):
         return self.quant_inp(x)
+
 
 
 
