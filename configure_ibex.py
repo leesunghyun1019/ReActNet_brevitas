@@ -350,4 +350,22 @@ def save_cnn_net_params(path, int_weights,mul_vals, shift_vals, int_biases):
 
     return
 
+def generate_Makefile(path, name):
+    with open(path + '/Makefile', 'w') as f:
+        f.write('# Copyright lowRISC contributors.\n')
+        f.write('# Licensed under the Apache License, Version 2.0, see LICENSE for details.\n')
+        f.write('# SPDX-License-Identifier: Apache-2.0\n')
+        f.write('#\n# Generate a baremetal application\n\n')
+        f.write('# Name of the program $(PROGRAM).c will be added as a source file\n\n')
+
+        f.write('PROGRAM = ' + name + '\n')
+        f.write('PROGRAM_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))\n')
+        f.write('# Any extra source files to include in the build. Use the upper case .S\n')
+        f.write('# extension for assembly files\nEXTRA_SRCS :=\n\n')
+        f.write('include ${PROGRAM_DIR}/../../common/common.mk')
+
+    shutil.copy(path + '/Makefile', path + '/../optimized')
+    return
+
+
 
