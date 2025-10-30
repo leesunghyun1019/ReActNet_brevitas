@@ -364,6 +364,9 @@ def generate_Makefile(path, name):
         f.write('# extension for assembly files\nEXTRA_SRCS :=\n\n')
         f.write('include ${PROGRAM_DIR}/../../common/common.mk')
 
+    shutil.copy(path + '/Makefile', path + '/../optimized')
+    return
+
 
 def extract_input(model,testloader):
     for test_imgs, _ in testloader:
@@ -372,8 +375,6 @@ def extract_input(model,testloader):
     t = np.expand_dims(t, axis = 0)
 
     return t
-    shutil.copy(path + '/Makefile', path + '/../optimized')
-    return
 
 
 
