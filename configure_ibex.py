@@ -364,6 +364,14 @@ def generate_Makefile(path, name):
         f.write('# extension for assembly files\nEXTRA_SRCS :=\n\n')
         f.write('include ${PROGRAM_DIR}/../../common/common.mk')
 
+
+def extract_input(model,testloader):
+    for test_imgs, _ in testloader:
+        t = (torch.round(Variable(test_imgs).float()/model.quant_inp.extract_quant_act_scale().cpu()))
+        t = t.detach().cpu().numpy().astype(np.int16)[0]
+    t = np.expand_dims(t, axis = 0)
+
+    return t
     shutil.copy(path + '/Makefile', path + '/../optimized')
     return
 
