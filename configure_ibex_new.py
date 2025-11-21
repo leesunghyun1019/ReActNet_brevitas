@@ -29,12 +29,13 @@ def quantize_multiplier(real_multiplier):
 
     return quantized_multiplier, right_shift
 
-def get_int_params(quant_net):
-    
+def get_int_params(quant_net, details):
+    # details 0~8    act_scale inp 1~6 oup  in scale c0~ dc5
     int_weights = []
     int_bias = []
     in_scales = []
     act_scales = []
+    add_scales = []
     
     def extract_quant_params(module):
         for name, submodule in module.named_children():
@@ -48,20 +49,88 @@ def get_int_params(quant_net):
             if hasattr(submodule, 'quant_act_scale') and submodule.quant_act_scale is not None:
                 act_scales.append(submodule.quant_act_scale().cpu().detach().numpy())
 
+            if isinstance(submodule, qnn.QuantEltwiseAdd):
+                add_scale=submodule.output_quant.scale().cpu().detach().numpy()
+                if add_scale.ndim == 0:
+                    add_scale = np.array([add_scale])
+                add_scales.append(add_scale)
+
             # Recursively extract parameters from the children modules
             extract_quant_params(submodule)
 
     # Start extraction from the top-level module
     extract_quant_params(quant_net)
+
+    print(f"Total weights: {len(int_weights)}")
+    print(f"Total act_scales: {len(act_scales)}")
+    print(f"Total add_scales: {len(add_scales)}")
     
     mul_vals, shift_vals = [], []
+    M_num=-1
+    conv_idx=0
+    act_idx=0 # Input quantization activation (act_scales[0])
+    add_idx=0
+
+    for detail_idx,layer in enumerate(details):
+        if layer['layer_type'] in ['Conv2d', 'Linear']:
+            # if next layer is shortcut
+            next_is_shortcut_related=(detail_idx +1 <len(details) and 
+                                 details[detail_idx + 1]['layer_type'] in ['Shortcut', 'Downsample_Conv2d'])
+
+            if next_is_shortcut_related:
+                # Shortcut 직전 main path 마지막 conv 의 scale/ add scale
+                M= in_scales[conv_idx] / add_scales[add_idx]
+                M_num+=1
+                print(f"Mnum: {M_num} => Conv {conv_idx} (before Shortcut): M = in_scales[{conv_idx}] / add_scales[{add_idx}]")
+            else:
+                # 일반 conv/linear -> 바로 다음 activation
+                act_idx+=1
+                M = in_scales[conv_idx] / act_scales[act_idx]
+                M_num+=1
+                print(f"Mnum: {M_num} => Conv or Linear {conv_idx} (normal): M = in_scales[{conv_idx}] / act_scales[{act_idx}]")
+            
+            mul, shift = quantize_multiplier(M[0])
+            mul_vals.append(mul)
+            shift_vals.append(shift)
+            conv_idx += 1
+        
+        elif layer['layer_type'] == 'Downsample_Conv2d':
+            # Downsample conv → add scale 사용
+            M = in_scales[conv_idx] / add_scales[add_idx]
+            M_num+=1
+            print(f"Mnum: {M_num} => Downsample Conv {conv_idx}: M = in_scales[{conv_idx}] / add_scales[{add_idx}]")
+
+            mul, shift = quantize_multiplier(M[0])
+            mul_vals.append(mul)
+            shift_vals.append(shift)
+            conv_idx += 1
+
+        elif layer['layer_type'] == 'Shortcut':
+            if not layer['has_downsample']:
+                # Identity shortcut → 분기점 activation scale / add scale
+                # 분기점 = main path 시작 전 activation 이 부분은 추후에 보자
+                branch_act_idx = act_idx - (layer['length']-1)
+
+                M = act_scales[branch_act_idx] / add_scales[add_idx]
+                M_num+=1
+                print(f"Mnum: {M_num} => Identity Shortcut: M = act_scales[{branch_act_idx}] / add_scales[{add_idx}]")
+
+                mul, shift = quantize_multiplier(M[0])
+                mul_vals.append(mul)
+                shift_vals.append(shift)
+            
+            # Add 이후 requantization: add_scale → activation
+            act_idx += 1
+            M_add = add_scales[add_idx] / act_scales[act_idx]
+            M_num+=1
+            print(f"Mnum: {M_num} => Add requant: M = add_scales[{add_idx}] / act_scales[{act_idx}]")
+
+            mul, shift = quantize_multiplier(M_add[0])
+            mul_vals.append(mul)
+            shift_vals.append(shift)
+
+            add_idx += 1
     
-    for i in range(len(act_scales)-1):
-        M = in_scales[i]/act_scales[i+1]
-        mul, shift = quantize_multiplier(M[0])
-        mul_vals.append(mul)
-        shift_vals.append(shift)
-      
     int_biases = []
     f_int_biases = []
     shift_biases = []
@@ -73,7 +142,8 @@ def get_int_params(quant_net):
         l_bias = np.left_shift(r_bias, shift_bias)
         shift_biases.append(shift_bias)
         int_biases.append(l_bias)
-
+    
+    print(f"\nTotal M values: {len(mul_vals)}")
     return int_weights, int_biases, f_int_biases, shift_biases, mul_vals, shift_vals
 
 def extract_input(model,testloader):
