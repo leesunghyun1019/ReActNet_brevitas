@@ -910,7 +910,37 @@ def generate_og_c_code_cnn(path, name, input, cnn_details, act_details, int_weig
 
     return
 
+class Quant_Model(nn.Module):
+    def __init__(self,quant_model,input_sign=True):
+        super(Quant_Model, self).__init__()
 
+        if input_sign:
+            self.quant_inp = qnn.QuantIdentity(
+                bit_width=8, 
+                return_quant_tensor=True,
+                act_quant=Uint8ActPerTensorFloat, 
+                scaling_min_val=2e-16, 
+                restrict_scaling_type=RestrictValueType.LOG_FP
+            )
+        
+        else:
+            self.quant_inp = qnn.QuantIdentity(
+                bit_width=8, 
+                return_quant_tensor=True,
+                act_quant=Int8ActPerTensorFloat, 
+                scaling_min_val=2e-16, 
+                restrict_scaling_type=RestrictValueType.LOG_FP
+            )
+
+        self.sequential = quant_model
+
+        self.o_quant = qnn.QuantIdentity(bit_width=8, return_quant_tensor=True)
+
+    def forward(self,x):
+        x = self.quant_inp(x)
+        x = self.sequential(x)
+        x = self.o_quant(x)
+        return F.log_softmax(x, dim=1)
 
 
 
