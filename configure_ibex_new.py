@@ -6,6 +6,10 @@ import shutil
 import brevitas.nn as qnn
 from typing import Dict, List, Any, Optional, Tuple
 
+from brevitas.quant import Int8WeightPerTensorFloat, Int8ActPerTensorFloat, Uint8ActPerTensorFloat
+from brevitas.quant.scaled_int import Int32Bias
+from brevitas.core.restrict_val import RestrictValueType
+
 
 def quantize_multiplier(real_multiplier):
     s = 0
