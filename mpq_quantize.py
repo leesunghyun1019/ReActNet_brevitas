@@ -165,20 +165,21 @@ from brevitas.inject.enum import ScalingImplType
 from brevitas.inject.enum import StatsOp
 from brevitas.inject.enum import RestrictValueType
 from brevitas.inject import value
+from brevitas.quant import Int8WeightPerTensorFloat, SignedBinaryActPerTensorConst
 
 # Binary Convolution
 class BinaryWeightPerChannel(Int8WeightPerTensorFloat):
-     quant_type = QuantType.BINARY
-     bit_width = 1
-     bit_width_impl_type = BitWidthImplType.CONST
-     scaling_impl_type = ScalingImplType.STATS
-     scaling_stats_op = StatsOp.AVE
-     scaling_per_output_channel = True
-     narrow_range = False
+    quant_type = QuantType.BINARY
+    bit_width = 1
+    bit_width_impl_type = BitWidthImplType.CONST
+    scaling_impl_type = ScalingImplType.STATS
+    scaling_stats_op = StatsOp.AVE
+    scaling_per_output_channel = True
+    narrow_range = False
      
-     @value
-     def scaling_init(module):
-         return torch.mean(torch.abs(module.weight), dim=(1, 2, 3), keepdim=True)
+    @value
+    def scaling_init(module):
+        return torch.mean(torch.abs(module.weight), dim=(1, 2, 3), keepdim=True)
 
 
 
