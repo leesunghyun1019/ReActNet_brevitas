@@ -1,8 +1,8 @@
 import numpy as np
 import torch.nn as nn
 import torch
-import torch.nn.functional as F
 from torch.autograd import Variable
+import torch.nn.functional as F
 import shutil
 import brevitas.nn as qnn
 from typing import Dict, List, Any, Optional, Tuple
@@ -10,7 +10,6 @@ from typing import Dict, List, Any, Optional, Tuple
 from brevitas.quant import Int8WeightPerTensorFloat, Int8ActPerTensorFloat, Uint8ActPerTensorFloat
 from brevitas.quant.scaled_int import Int32Bias
 from brevitas.core.restrict_val import RestrictValueType
-
 
 def quantize_multiplier(real_multiplier):
     s = 0
@@ -35,7 +34,7 @@ def quantize_multiplier(real_multiplier):
     return quantized_multiplier, right_shift
 
 def get_int_params(quant_net, details):
-    # details 0~8    act_scale inp 1~6 oup  in scale c0~ dc5
+
     int_weights = []
     int_bias = []
     in_scales = []
@@ -151,6 +150,7 @@ def get_int_params(quant_net, details):
     print(f"\nTotal M values: {len(mul_vals)}")
     return int_weights, int_biases, f_int_biases, shift_biases, mul_vals, shift_vals
 
+
 def extract_input(model,testloader):
     for test_imgs, _ in testloader:
         t = (torch.round(Variable(test_imgs).float()/model.quant_inp.extract_quant_act_scale().cpu()))
@@ -201,7 +201,6 @@ def save_2d_inputs(path, input):
         f.write('#endif /* IBEX_INPUTS_H */')
     
     return 
-
 
 def save_cnn_net_params(path, int_weights, int_biases, mul_vals, shift_vals, shift_biases = None):
     wi = 0
@@ -401,6 +400,10 @@ def get_quantnet_details(module,details=None,act=None):
                 act.append(1)
             elif isinstance(layer, (nn.Identity,qnn.QuantIdentity)):
                 act.append(0)
+
+            # QuantEltwiseAdd skip
+            elif isinstance(layer, qnn.QuantEltwiseAdd):
+                pass  
             
             # Recursive
             else:
@@ -423,6 +426,7 @@ def get_quantnet_details(module,details=None,act=None):
                         "groups": ds_layer.groups,
                     }
                     details.append(ds_info)
+                elif isinstance(ds_layer, (nn.Identity,qnn.QuantIdentity)):
                     act.append(0)
         
         details.append({
@@ -430,7 +434,9 @@ def get_quantnet_details(module,details=None,act=None):
             "length": len(main_layers),
             "has_downsample": has_downsample,
         })
-        act.append(0)
+
+        #act.append(0)
+        
 
     #basic block
     else:
@@ -453,6 +459,7 @@ def get_quantnet_details(module,details=None,act=None):
                     "in_features": layer.in_features,
                     "out_features": layer.out_features,
                 })
+                act.append(0) # 마지막 linear 이후 추가
             
             elif isinstance(layer, nn.MaxPool2d):
                 details.append({
@@ -474,14 +481,17 @@ def get_quantnet_details(module,details=None,act=None):
             elif isinstance(layer, (nn.ReLU, nn.ReLU6, qnn.QuantReLU)):
                 act.append(1)
             
-            elif isinstance(layer, nn.Identity):
-                act.append(0) 
-             # Recursive
-            else:
+            elif isinstance(layer, (nn.Identity, qnn.QuantIdentity)):
+                act.append(0)
+
+            # QuantEltwiseAdd skip
+            elif isinstance(layer, qnn.QuantEltwiseAdd):
+                pass  
+            
+            else: # Recursive
                 get_quantnet_details(layer, details, act)
 
     return details, act
-
 
 def generate_og_c_code_cnn(path, name, input, cnn_details, act_details, int_weights):
 
@@ -914,6 +924,7 @@ def generate_og_c_code_cnn(path, name, input, cnn_details, act_details, int_weig
         f.write('\treturn 0;\n}')
 
     return
+            
 
 class Quant_Model(nn.Module):
     def __init__(self,quant_model,input_sign=True):
@@ -947,415 +958,6 @@ class Quant_Model(nn.Module):
         x = self.o_quant(x)
         return F.log_softmax(x, dim=1)
 
-
-
-
-
-
-
-
-
-
-# def generate_og_c_code_cnn(path, name, input, cnn_details, act_details, int_weights):
-
-#     #Step 1: Pre-parse Block Structure
-#     block_info = {}   # Shortcut index
-#     conv_counter = 0  # Conv/Downsample count
-
-#     for idx,detail in enumerate(cnn_details):
-        
-#         if detail["layer_type"] in ["Conv2d", "Downsample_Conv2d"]:
-#             conv_counter+=1
-
-#         if detail["layer_type"] == "Shortcut":
-#             length = detail["length"]
-#             has_ds = detail.get("has_downsample", False)
-
-#             #The index of the first Conv layer in the main branch
-#             main_start = idx - length - (1 if has_ds else 0)
-
-#             #Block input layer
-#             input_layer = main_start - 1 
-
-#             # Calculate filter index(fi) of downsample
-#             if has_ds:
-#                 ds_fi = conv_counter # current fi of downsample
-
-#                 # Find the fi of the input channel (number of Conv layers up to the input layer)
-#                 if input_layer < 0:
-#                     input_fi = 0
-#                 else:
-#                     input_fi = sum(1 for i, d in enumerate(cnn_details[:input_layer+1]) 
-#                                    if d["layer_type"] in ["Conv2d", "Downsample_Conv2d"])
-            
-#             else:
-#                 ds_fi = None
-#                 input_fi = None
-            
-#             # idx when layer_type shortcut
-#             block_info[idx]={
-#                 'main_start': main_start,
-#                 'input_layer': input_layer,
-#                 'ds_fi': ds_fi,
-#                 'input_fi': input_fi,
-#                 'has_downsample': has_ds,
-#                 'ds_layer_idx': idx - 1 if has_ds else None
-
-#             }
-
-#     with open(path + '/' + name + '.c', 'w') as f:
-#         # ========== Header file ==========
-#         f.write('#include "simple_system_common.h"\n')
-#         f.write('#include "cnn_weights.h"\n')
-#         f.write('#include "fully_connected.h"\n')
-#         f.write('#include "ibex_cnn_params.h"\n')
-#         f.write('#include "ibex_inputs.h"\n')
-#         f.write('#include "conv2d.h"\n')
-
-#         # check if DWS conv is needed
-#         for detail in cnn_details[:-1]:
-#             if detail["layer_type"] in ["Conv2d", "Downsample_Conv2d"]:
-#                 if(detail["in_channels"] == detail["out_channels"] == detail["groups"] != 1):
-#                     f.write('#include "dws_conv.h"\n')
-#                     break
-        
-#         f.write('\n')
-
-#         # ========== Basic Macro Definition ==========
-#         f.write('#define IMG_SZ ' + str(np.shape(input)[2]) + '\n')
-#         f.write('#define NUM_FIL0 ' + str(np.shape(input)[1]) + '\n\n')
-
-#         # Filter Size Definition
-#         i = 1
-#         for w in int_weights:
-#             if(len(np.shape(w)) == 4):
-#                 f.write('#define FILTER' + str(i) + ' ' + str(w.shape[2]) + '\n')
-#                 i += 1
-#         f.write('\n')
-
-#         #NUM_FIL Definition
-#         i = 1
-#         for w in int_weights:
-#             if(len(np.shape(w)) == 4):
-#                 f.write('#define NUM_FIL' + str(i) + ' ' + str(w.shape[0]) + '\n')
-#                 i += 1
-#         f.write('\n')
-
-#         # Stride Definition
-#         i = 1
-#         for detail in cnn_details:
-#             if detail["layer_type"] in ["Conv2d", "Downsample_Conv2d"]:
-#                  f.write('#define STRIDE' + str(i) + ' ' + str(detail["stride"][0]) + '\n')
-#                  i += 1
-#         f.write('\n')
-
-#         # Padding Definition
-#         i = 1
-#         for detail in cnn_details:
-#             if detail["layer_type"] in ["Conv2d", "Downsample_Conv2d"]:
-#                 if(detail["padding"] == 'same'):
-#                     f.write('#define PAD_TB' + str(i) + ' ' + str((detail["kernel_size"][0] - 1)//2) + '\n')
-#                     f.write('#define PAD_LR' + str(i) + ' ' + str((detail["kernel_size"][0] - 1)//2) + '\n')
-#                 elif(detail["padding"] == 'valid'):
-#                     f.write('#define PAD_TB' + str(i) + ' 0\n')
-#                     f.write('#define PAD_LR' + str(i) + ' 0\n')
-#                 else:
-#                     f.write('#define PAD_TB' + str(i) + ' ' + str(detail["padding"][0]) + '\n')
-#                     f.write('#define PAD_LR' + str(i) + ' ' + str(detail["padding"][0]) + '\n')
-#                 f.write('\n')
-#                 i += 1
-
-#         # POOL Definition
-#         i = 1
-#         for detail in cnn_details:
-#             if ((detail["layer_type"] == "MaxPool2d") or (detail["layer_type"] == "AvgPool2d")):
-#                 f.write('#define POOL_STRIDE' + str(i) + ' ' + str(detail["stride"]) + '\n')
-#                 f.write('#define POOL_SIZE' + str(i) + ' ' + str(detail["kernel_size"]) + '\n')
-#                 f.write('\n')
-#                 i += 1
-
-#         # DENSE 정의
-#         i = 1
-#         for w in int_weights[:-1]:
-#             if(len(np.shape(w)) == 2):
-#                 f.write('#define DENSE_DIM' + str(i) + ' ' + str(w.shape[0]) + '\n')
-#                 i += 1
-
-#         f.write('#define OUT_DIM ' + str(int_weights[-1].shape[0]) + '\n\n')
-#         f.write('#define SAMPLES 1\nint outs[SAMPLES][OUT_DIM];\n\n')
-#         f.write('void ' + name + '() {\n\n')
-
-#         # ========== Dimension Calculation ==========
-#         i = 1  # cnn_details (1,2,3...)
-#         fi = 1 # filter index
-#         st = 1
-#         flatten = 0
-
-#         for idx, detail in enumerate(cnn_details):
-#             if detail["layer_type"] == "Conv2d":
-#                 f.write('\tint dout' + str(i) + ' = NUM_FIL' + str(fi) + ';\n')
-#                 if(i == 1):
-#                     f.write('\tint hout' + str(i) + ' = ((IMG_SZ - FILTER1 + 2 * PAD_TB1)/STRIDE1) + 1;\n')
-#                     f.write('\tint wout' + str(i) + ' = ((IMG_SZ - FILTER1 + 2 * PAD_LR1)/STRIDE1) + 1;\n')
-#                 else:
-#                     f.write('\tint hout' + str(i) + ' = ((hout' + str(i-1) + ' - FILTER' + str(fi))
-#                     f.write(' + 2 * PAD_TB' + str(fi) + ')/STRIDE' + str(fi) + ')+1;\n')
-#                     f.write('\tint wout' + str(i) + ' = ((wout' + str(i-1) + ' - FILTER' + str(fi))
-#                     f.write(' + 2 * PAD_LR' + str(fi) + ')/STRIDE' + str(fi) + ')+1;\n')
-#                 fi += 1
-
-#             elif detail["layer_type"] == "Downsample_Conv2d":
-#                 # Find the Input Layer in the Block Information
-#                 input_layer_idx = None
-#                 for shortcut_idx, info in block_info.items():
-#                     if info['ds_layer_idx'] == idx:
-#                         input_layer_idx = info['input_layer']
-#                         break
-            
-#                 f.write('\tint dout' + str(i) + '_ds = NUM_FIL' + str(fi) + ';\n')
-
-#                 if input_layer_idx is None or input_layer_idx < 0:
-#                     # IMG input
-#                     f.write('\tint hout' + str(i) + '_ds = ((IMG_SZ - FILTER' + str(fi))
-#                     f.write(' + 2 * PAD_TB' + str(fi) + ')/STRIDE' + str(fi) + ')+1;\n')
-#                     f.write('\tint wout' + str(i) + '_ds = ((IMG_SZ - FILTER' + str(fi))
-#                     f.write(' + 2 * PAD_LR' + str(fi) + ')/STRIDE' + str(fi) + ')+1;\n')
-                
-#                 else:
-#                     c_input_idx = input_layer_idx + 1
-#                     f.write('\tint hout' + str(i) + '_ds = ((hout' + str(c_input_idx) + ' - FILTER' + str(fi))
-#                     f.write(' + 2 * PAD_TB' + str(fi) + ')/STRIDE' + str(fi) + ')+1;\n')
-#                     f.write('\tint wout' + str(i) + '_ds = ((wout' + str(c_input_idx) + ' - FILTER' + str(fi))
-#                     f.write(' + 2 * PAD_LR' + str(fi) + ')/STRIDE' + str(fi) + ')+1;\n')
-#                 fi += 1
-            
-#             elif ((detail["layer_type"] == "MaxPool2d") or (detail["layer_type"] == "AvgPool2d")):
-#                 f.write('\tint dout' + str(i) + ' = dout' + str(i-1) + ';\n')
-#                 f.write('\tint hout' + str(i) + ' = ((hout' + str(i-1) + ' - POOL_SIZE' + str(st) + ')/POOL_STRIDE' + str(st) + ') + 1;\n')
-#                 f.write('\tint wout' + str(i) + ' = ((wout' + str(i-1) + ' - POOL_SIZE' + str(st) + ')/POOL_STRIDE' + str(st) + ') + 1;\n')
-#                 st += 1
-
-#             elif(detail["layer_type"] == "Shortcut"):
-#                 if detail.get("has_downsample"):
-#                     ds_idx = i - 1
-#                     f.write('\tint dout' + str(i) + ' = dout' + str(ds_idx) + '_ds;\n') 
-#                     f.write('\tint hout' + str(i) + ' = hout' + str(ds_idx) + '_ds;\n')
-#                     f.write('\tint wout' + str(i) + ' = wout' + str(ds_idx) + '_ds;\n')
-#                 else:
-#                     f.write('\tint dout' + str(i) + ' = dout' + str(i-1) + ';\n')
-#                     f.write('\tint hout' + str(i) + ' = hout' + str(i-1) + ';\n')
-#                     f.write('\tint wout' + str(i) + ' = wout' + str(i-1) + ';\n')
-            
-#             elif detail["layer_type"] == "Linear":
-#                 if flatten == 0:
-#                     f.write('\tint flatten_dim = dout' + str(i-1) + ' * hout' + str(i-1) + ' * wout' + str(i-1) + ';\n')
-#                     flatten = 1
-#                 break
-            
-#             f.write('\n')
-#             i += 1
-        
-#         f.write('\n')
-
-
-#         # ========== Memory Allocation ==========
-#         i = 1
-#         fi = 1
-#         dn = 1
-#         flatten = 0
-
-#         f.write('\tint in[IMG_SZ][IMG_SZ][NUM_FIL0];\n')
-#         f.write('\tint inp_dim[3] = {IMG_SZ, IMG_SZ, NUM_FIL0};\n\n')
-
-#         for idx, detail in enumerate(cnn_details):
-#             if detail["layer_type"] == "Conv2d":
-#                 f.write('\tint out' + str(i) + '[hout' + str(i) + '][wout' + str(i) + '][dout' + str(i) + '];\n')
-#                 f.write('\tint pad_' + str(i) + '[4] = {PAD_TB' + str(fi) + ', PAD_TB' + str(fi))
-#                 f.write(', PAD_LR' + str(fi) + ', PAD_LR' + str(fi) + '};\n')
-#                 f.write('\tint outp_dim' + str(i) + '[3] = {hout' + str(i) + ', wout' + str(i))
-#                 f.write(', dout' + str(i) + '};\n')
-#                 f.write('\tint f_dim' + str(i) + '[4] = {NUM_FIL' + str(fi) + ', FILTER' + str(fi))
-#                 f.write(', FILTER' + str(fi) + ', NUM_FIL' + str(fi-1) + '};\n')
-#                 fi += 1
-            
-#             elif detail["layer_type"] == "Downsample_Conv2d":
-#                 input_fi = None
-#                 for shortcut_idx, info in block_info.items():
-#                     if info['ds_layer_idx'] == idx:
-#                         input_fi = info['input_fi']
-#                         break
-
-#                 f.write('\tint out' + str(i) + '_ds[hout' + str(i) + '_ds][wout' + str(i) + '_ds][dout' + str(i) + '_ds];\n')
-#                 f.write('\tint pad_' + str(i) + '_ds[4] = {PAD_TB' + str(fi) + ', PAD_TB' + str(fi))
-#                 f.write(', PAD_LR' + str(fi) + ', PAD_LR' + str(fi) + '};\n')
-#                 f.write('\tint outp_dim' + str(i) + '_ds[3] = {hout' + str(i) + '_ds, wout' + str(i) + '_ds')
-#                 f.write(', dout' + str(i) + '_ds};\n')
-#                 f.write('\tint f_dim' + str(i) + '_ds[4] = {NUM_FIL' + str(fi) + ', FILTER' + str(fi))
-#                 f.write(', FILTER' + str(fi) + ', NUM_FIL' + str(input_fi) + '};\n')
-#                 fi += 1
-            
-#             elif ((detail["layer_type"] == "MaxPool2d") or (detail["layer_type"] == "AvgPool2d") or detail["layer_type"] == "Shortcut"):
-#                 f.write('\tint out' + str(i) + '[hout' + str(i) + '][wout' + str(i) + '][dout' + str(i) + '];\n')
-#                 f.write('\tint outp_dim' + str(i) + '[3] = {hout' + str(i) + ', wout' + str(i))
-#                 f.write(', dout' + str(i) + '};\n')
-
-#             elif detail["layer_type"] == "Linear":
-#                 if flatten == 0:
-#                     f.write('\tint out' + str(i) + '[flatten_dim];\n')
-#                     flatten = 1
-#                 else:
-#                     f.write('\tint out' + str(i) + '[DENSE_DIM' + str(dn) + '];\n')
-#                     dn += 1
-            
-#             f.write('\n')
-#             i += 1
-        
-#         f.write('\n\tint out[OUT_DIM];\n\n\tfor (int iter = 0; iter < SAMPLES; iter++){\n\n')
-
-#         # ========== Copy Input Data ==========
-#         f.write('\t\tfor(int i = 0; i < IMG_SZ; i++){\n')
-#         f.write('\t\t\tfor(int j = 0; j < IMG_SZ; j++){\n')
-#         f.write('\t\t\t\tfor(int k = 0; k < NUM_FIL0; k++){\n')
-#         f.write('\t\t\t\t\tin[i][j][k] = input[i][j][k][iter];\n')
-#         f.write('\t\t\t\t}\n\t\t\t}\n\t\t}\n\n\t\tpcount_enable(1);\n\n')
-
-#         # ========== Execute Layer ==========
-#         i = 1
-#         fi = 1
-#         st = 1
-#         dn = 1
-#         flatten = 0
-#         act_num = 0
-
-#         for idx, detail in enumerate(cnn_details[:-1]):
-            
-#             if detail["layer_type"] == "Conv2d":
-#                 if(detail["in_channels"] == detail["out_channels"] == detail["groups"] != 1):
-#                     conv_type = 'dw_conv'
-#                 elif(detail["kernel_size"][0] == 1):
-#                     conv_type = 'pw_conv'
-#                 else:
-#                     conv_type = "conv2"
-
-                
-#                 relu_flag = act_details[act_num] if act_num < len(act_details) else 0
-
-#                 if(i == 1):
-#                     f.write('\t\t' + conv_type + '(inp_dim, f_dim1, outp_dim1, in, F1, B1, ')
-#                     f.write('out1, STRIDE1, pad_1, SB1, MV1, SV1, ' + str(relu_flag) + ');\n')
-#                 else:
-#                     f.write('\t\t' + conv_type + '(outp_dim' + str(i-1) + ', f_dim' + str(i) + ', outp_dim' + str(i))
-#                     f.write(', out' + str(i-1) + ', F' + str(fi) + ', B' + str(fi) + ', out' + str(i))
-#                     f.write(', STRIDE' + str(fi) + ', pad_' + str(i) + ', SB' + str(fi))
-#                     f.write(', MV' + str(fi) + ', SV' + str(fi) + ', ' + str(relu_flag) + ');\n')
-
-#                 fi += 1
-#                 act_num += 1
-            
-#             elif detail["layer_type"] == "Downsample_Conv2d":
-#                 conv_type = 'pw_conv' if detail["kernel_size"][0] == 1 else 'conv2'
-
-#                 input_layer_idx = None
-#                 for shortcut_idx, info in block_info.items():
-#                     if info['ds_layer_idx'] == idx:
-#                         input_layer_idx = info['input_layer']
-#                         break
-                
-#                 if input_layer_idx is None or input_layer_idx < 0:
-#                     input_name = 'in'
-#                     input_dim = 'inp_dim'
-#                 else:
-#                     c_input_idx = input_layer_idx + 1
-#                     input_name = 'out' + str(c_input_idx)
-#                     input_dim = 'outp_dim' + str(c_input_idx)
-                
-#                 f.write('\t\t// Downsample branch (parallel with main branch)\n')
-#                 f.write('\t\t' + conv_type + '(' + input_dim + ', f_dim' + str(i) + '_ds, outp_dim' + str(i) + '_ds')
-#                 f.write(', ' + input_name + ', F' + str(fi) + ', B' + str(fi) + ', out' + str(i) + '_ds')
-#                 f.write(', STRIDE' + str(fi) + ', pad_' + str(i) + '_ds, SB' + str(fi))
-#                 f.write(', MV' + str(fi) + ', SV' + str(fi) + ', 0);\n')
-                
-#                 fi += 1
-#                 act_num += 1
-            
-#             elif detail["layer_type"] == "MaxPool2d":
-#                 f.write('\t\tmaxpool2(outp_dim' + str(i-1) + ', outp_dim' + str(i))
-#                 f.write(', out' + str(i-1) + ', out' + str(i) + ', POOL_SIZE' + str(st) + ', POOL_STRIDE')
-#                 f.write(str(st) + ');\n')
-#                 st += 1
-            
-#             elif(detail["layer_type"] == "AvgPool2d"):
-#                 f.write('\t\tavgpool2(outp_dim' + str(i-1) + ', outp_dim' + str(i))
-#                 f.write(', out' + str(i-1) + ', out' + str(i) + ', POOL_SIZE' + str(st) + ', POOL_STRIDE')
-#                 f.write(str(st) + ');\n')
-#                 st += 1
-            
-#             elif detail["layer_type"] == "Shortcut":
-#                 if detail.get("has_downsample"):
-#                     ds_idx = i - 1
-#                     main_idx = ds_idx - 1
-#                     f.write('\t\tshortcut(outp_dim' + str(i) + ', out' + str(main_idx))
-#                     f.write(', out' + str(ds_idx) + '_ds, out' + str(i) + ');\n')
-                
-#                 else:
-#                     shortcut_length = detail["length"]
-#                     f.write('\t\tshortcut(outp_dim' + str(i) + ', out' + str(i-1))
-#                     f.write(', out' + str(i-shortcut_length-1) + ', out' + str(i) + ');\n')
-            
-#             elif detail["layer_type"] == "Linear":
-#                 relu_flag = act_details[act_num] if act_num < len(act_details) else 0
-
-#                 if flatten == 0:
-#                     f.write('\t\tflatten(outp_dim' + str(i-1) + ', out' + str(i-1) + ', out' + str(i) + ');\n\n')
-#                     i += 1
-#                     f.write('\t\tmlp_layer(out' + str(i-1) + ', out' + str(i) + ', flatten_dim, DENSE_DIM1')
-#                     f.write(', W1, B' + str(fi + dn - 1) +  ', SB' + str(fi + dn - 1) + ', MV' + str(fi + dn - 1))
-#                     f.write(', SV' + str(fi + dn - 1) + ', ' + str(relu_flag) + ');\n')
-#                     dn += 1
-#                     flatten = 1
-#                 else:
-#                     f.write('\t\tmlp_layer(out' + str(i-1) + ', out' + str(i) + ', DENSE_DIM' + str(dn-1))
-#                     f.write(', DENSE_DIM' + str(dn) + ', W' + str(dn) + ', B' + str(fi + dn - 1))
-#                     f.write(', SB' + str(fi + dn - 1) + ', MV' + str(fi + dn - 1))
-#                     f.write(', SV' + str(fi + dn - 1) + ', ' + str(relu_flag) + ');\n')
-#                     dn += 1
-                
-#                 act_num += 1
-
-#             f.write('\n')
-#             i += 1
-        
-#         # ========== final layer ==========
-#         if flatten == 0:
-#             f.write('\t\tflatten(outp_dim' + str(i-1) + ', out' + str(i-1) + ', out' + str(i) + ');\n\n')
-#             i += 1
-#             f.write('\t\tmlp_layer(out' + str(i-1) + ', out, flatten_dim, OUT_DIM, ')
-#             f.write('W1, B' + str(fi + dn - 1) +  ', SB' + str(fi + dn - 1) + ', MV' + str(fi + dn - 1))
-#             f.write(', SV' + str(fi + dn - 1) + ', 1);\n')
-#         else:
-#             f.write('\t\tmlp_layer(out' + str(i-1) + ', out, DENSE_DIM' + str(dn-1))
-#             f.write(', OUT_DIM, W' + str(dn) + ', B' + str(fi + dn - 1))
-#             f.write(', SB' + str(fi + dn - 1) + ', MV' + str(fi + dn - 1))
-#             f.write(', SV' + str(fi + dn - 1) + ', 1);\n')
-
-        
-#         # ========== output ==========
-#         f.write('\n\t\tpcount_enable(0);\n\n')
-#         f.write('\t\tputs("Output Layer Values:\\n");\n')
-#         f.write('\t\tfor(int i = 0; i < OUT_DIM; i++) {\n')
-#         f.write('\t\t\tputhex(out[i]);\n')
-#         f.write('\t\t\tputs("\\n");\n')
-#         f.write('\t\t}\n')
-#         f.write('\t}\n')
-#         f.write('}\n\n')
-        
-#         f.write('int main(void) {\n\n')
-#         f.write('\tpcount_enable(0);\n\n')
-#         f.write('\t' + name + '();\n\n')
-#         f.write('\treturn 0;\n}')
-
-#     return
-            
 
 
 
