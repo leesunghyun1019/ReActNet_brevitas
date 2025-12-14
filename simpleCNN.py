@@ -7,9 +7,7 @@ from brevitas.quant import Int8WeightPerTensorFloat, Int8ActPerTensorFloat, Uint
 from brevitas.quant.scaled_int import Int32Bias
 from brevitas.core.restrict_val import RestrictValueType
 
-from configure_ibex_new import get_quantnet_details
-from configure_ibex_new import get_int_params
-from configure_ibex_new import generate_og_c_code_cnn
+import configure_ibex_int8
 
 
 class BasicBlock(nn.Module):
@@ -172,48 +170,12 @@ class SimpleTestCNN(nn.Module):
         
         return x
 
-class Quant_Model(nn.Module):
-    def __init__(self,quant_model,input_sign=True):
-        super(Quant_Model, self).__init__()
-
-        if input_sign:
-            self.quant_inp = qnn.QuantIdentity(
-                bit_width=8, 
-                return_quant_tensor=True,
-                act_quant=Uint8ActPerTensorFloat, 
-                scaling_min_val=2e-16, 
-                restrict_scaling_type=RestrictValueType.LOG_FP
-            )
-        
-        else:
-            self.quant_inp = qnn.QuantIdentity(
-                bit_width=8, 
-                return_quant_tensor=True,
-                act_quant=Int8ActPerTensorFloat, 
-                scaling_min_val=2e-16, 
-                restrict_scaling_type=RestrictValueType.LOG_FP
-            )
-
-        self.sequential = quant_model
-
-        self.o_quant = qnn.QuantIdentity(bit_width=8, return_quant_tensor=True)
-
-    def forward(self,x):
-        x = self.quant_inp(x)
-        x = self.sequential(x)
-        x = self.o_quant(x)
-        return F.log_softmax(x, dim=1)
-
-
-
-
-
 
 if __name__ == "__main__":
 
     print("=== Creating Model ===")
     simplenet=SimpleTestCNN(num_classes=10)
-    model = Quant_Model(quant_model=simplenet,input_sign=True)
+    model = configure_ibex_int8.Quant_Model(quant_model=simplenet,input_sign=True)
 
     model.eval()
 
@@ -225,7 +187,7 @@ if __name__ == "__main__":
     print(f"Output shape: {output.shape}\n")
 
     print("=== Extracting Network Details ===")
-    details, act = get_quantnet_details(simplenet)
+    details, act = configure_ibex_int8.get_quantnet_details(simplenet)
     
     for i, layer in enumerate(details):
         print(f"{i}: {layer['layer_type']}", end="")
@@ -245,7 +207,7 @@ if __name__ == "__main__":
 
    
     print("\n=== Extracting Parameters ===")
-    int_weights, int_biases, f_int_biases, shift_biases, mul_vals, shift_vals = get_int_params(model,details)
+    int_weights, int_biases, f_int_biases, shift_biases, mul_vals, shift_vals = configure_ibex_int8.get_int_params(model,details)
     print(f"Extracted {len(mul_vals)} mul_vals")
     print(f"Extracted {len(shift_vals)} shift_vals")
 
@@ -257,7 +219,7 @@ if __name__ == "__main__":
     os.makedirs(output_dir, exist_ok=True)
 
     input_data = x.numpy()
-    generate_og_c_code_cnn(
+    configure_ibex_int8.generate_og_c_code_cnn(
         path=output_dir,
         name="simple_test_cnn_1",
         input=input_data,
@@ -266,3 +228,4 @@ if __name__ == "__main__":
         int_weights=int_weights
     )
     print("C code generated successfully!")
+
